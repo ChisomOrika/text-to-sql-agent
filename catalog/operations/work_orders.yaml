@@ -1,0 +1,136 @@
+table: operations.work_orders
+description: >
+  Tracks individual work orders tied to client engagements. Each work order
+  represents a discrete unit of work with estimated and actual hours, a target
+  completion date, and a billable flag. Used for project tracking, efficiency
+  analysis, and resource planning.
+
+owner: operations-team@company.com
+primary_key: work_order_id
+row_count_approx: 500
+refresh_cadence: daily
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: healthy
+  known_issues: []
+  null_rates:
+    actual_completion_date: 0.35
+    actual_hours: 0.30
+
+relationships:
+  - column: engagement_id
+    references: client_services.engagements.engagement_id
+    type: many_to_one
+  - column: lead_consultant_id
+    references: operations.staffing.employee_id
+    type: many_to_one
+
+columns:
+  - name: work_order_id
+    type: INTEGER
+    description: Unique identifier for the work order.
+    business_context: Primary key; used to join with timesheets.
+
+  - name: engagement_id
+    type: INTEGER
+    description: The client engagement this work order belongs to.
+    business_context: Links to client_services.engagements for client and contract context.
+
+  - name: assigned_team
+    type: VARCHAR(100)
+    description: Name of the team assigned to execute the work order.
+    business_context: Free-text team name; not a foreign key to departments.
+
+  - name: lead_consultant_id
+    type: INTEGER
+    description: Employee ID of the lead consultant responsible for the work order.
+    business_context: Links to operations.staffing.employee_id.
+
+  - name: created_date
+    type: DATE
+    description: Date the work order was created.
+
+  - name: target_completion_date
+    type: DATE
+    description: Planned completion date for the work order.
+    business_context: Compare with actual_completion_date to determine if overdue.
+
+  - name: actual_completion_date
+    type: DATE
+    description: Date the work order was actually completed.
+    business_context: NULL when the work order is not yet completed.
+    common_mistake: Do not treat NULL as "never completed" — it means the work order is still open.
+
+  - name: estimated_hours
+    type: DECIMAL(8,2)
+    description: Hours originally estimated for this work order.
+    business_context: Compare with actual_hours for efficiency analysis (actual / estimated).
+    disambiguation: This is the planned estimate, not the consumed hours from timesheets.
+
+  - name: actual_hours
+    type: DECIMAL(8,2)
+    description: Total actual hours logged against this work order.
+    business_context: Rolled up from timesheets. NULL if no hours logged yet.
+    common_mistake: >
+      Do not confuse with estimated_hours. Efficiency ratio = actual_hours / estimated_hours.
+      A ratio above 1.0 means the work order went over budget.
+
+  - name: status
+    type: VARCHAR(20)
+    description: Current lifecycle status of the work order.
+    values: [draft, in_progress, completed, cancelled]
+    disambiguation: >
+      These statuses are specific to work_orders and differ from statuses in
+      other tables (e.g., timesheets uses submitted/approved/rejected;
+      staffing uses active/on_leave/terminated).
+    common_mistake: >
+      Do not filter on status='closed' or status='open' — those values do not
+      exist in this table.
+
+  - name: priority
+    type: VARCHAR(10)
+    description: Priority level of the work order.
+    values: [low, medium, high, critical]
+
+  - name: billable
+    type: BOOLEAN
+    description: Whether the work order is billable to the client.
+    business_context: >
+      Only billable work orders contribute to billed revenue. Non-billable
+      work orders (e.g., internal projects) should be excluded from revenue
+      calculations.
+    common_mistake: Defaults to TRUE; always filter explicitly when separating billable from non-billable.
+
+sample_queries:
+  - question: "Which work orders are overdue?"
+    sql: |
+      SELECT
+          wo.work_order_id,
+          wo.assigned_team,
+          wo.target_completion_date,
+          wo.status,
+          wo.priority
+      FROM operations.work_orders wo
+      WHERE wo.status IN ('draft', 'in_progress')
+        AND wo.target_completion_date < CURRENT_DATE
+      ORDER BY wo.target_completion_date ASC
+    notes: >
+      Overdue means the target_completion_date has passed but the work order
+      is not yet completed or cancelled.
+
+  - question: "What is the work order completion rate this year?"
+    sql: |
+      SELECT
+          COUNT(*) FILTER (WHERE status = 'completed') AS completed_count,
+          COUNT(*) FILTER (WHERE status != 'cancelled') AS total_non_cancelled,
+          ROUND(
+              100.0 * COUNT(*) FILTER (WHERE status = 'completed')
+              / NULLIF(COUNT(*) FILTER (WHERE status != 'cancelled'), 0),
+              1
+          ) AS completion_rate_pct
+      FROM operations.work_orders
+      WHERE created_date >= '2026-01-01'
+    notes: >
+      Cancelled work orders are excluded from the denominator so they do not
+      deflate the completion rate.

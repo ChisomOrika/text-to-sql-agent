@@ -1,0 +1,129 @@
+table: finance.revenue_recognition
+description: >
+  GAAP recognized revenue under ASC 606. This is Revenue Definition #1 and the
+  figure used in audited financial statements. Each row represents a revenue
+  recognition event tied to a contract performance obligation. This table tracks
+  when revenue is economically earned, regardless of when cash is received or
+  invoices are sent.
+
+owner: finance-data-team@company.com
+primary_key: recognition_id
+row_count_approx: 8500
+refresh_cadence: monthly
+last_refreshed: "2026-03-10T06:00:00Z"
+
+quality:
+  status: stale
+  known_issues:
+    - issue: "Table is 3 weeks past its expected monthly refresh date. Expected refresh was ~2026-03-15."
+      severity: high
+      workaround: "Data through February 2026 is complete. For March 2026 estimates, use accounts_receivable as a proxy."
+    - issue: "March 2026 data is not yet available. Any queries for March will return incomplete results."
+      severity: high
+      workaround: "Restrict date filters to before 2026-03-01 for accurate totals."
+  null_rates:
+    adjustment_reason: 0.85
+    original_amount: 0.30
+
+relationships:
+  - column: contract_id
+    references: client_services.contracts.contract_id
+    type: many_to_one
+  - column: customer_id
+    references: client_services.customers.customer_id
+    type: many_to_one
+
+columns:
+  - name: recognition_id
+    type: INTEGER
+    description: "Unique identifier for each recognition event."
+
+  - name: contract_id
+    type: INTEGER
+    description: "Foreign key to the contract that generated this revenue."
+    business_context: "One contract may have multiple recognition events over its term."
+
+  - name: customer_id
+    type: INTEGER
+    description: "Foreign key to the customer."
+
+  - name: recognition_date
+    type: DATE
+    description: "The date revenue was recognized under ASC 606 rules."
+    business_context: >
+      This is when the performance obligation was satisfied, not when the
+      invoice was sent or payment received.
+    disambiguation: >
+      When a user asks about 'revenue date', use recognition_date in this table.
+
+  - name: recognized_amount
+    type: DECIMAL(15,2)
+    description: "The dollar amount of revenue recognized."
+    business_context: >
+      This is the GAAP revenue number (Revenue Definition #1). Always positive.
+      This is NOT the same as gl_transactions.amount (which is signed) or
+      accounts_receivable.amount (which is the invoiced amount).
+    disambiguation: >
+      When the user asks for 'recognized revenue' or 'GAAP revenue', use this column.
+    common_mistake: >
+      Do not sum recognized_amount where status = 'deferred' — deferred entries
+      represent revenue that has NOT yet been recognized.
+
+  - name: status
+    type: VARCHAR(20)
+    description: "Revenue recognition lifecycle status."
+    business_context: >
+      'recognized' = revenue has been earned and recorded.
+      'deferred' = payment received but revenue not yet earned (liability).
+      'adjusted' = a correction to a prior recognition event.
+    disambiguation: >
+      In this table, 'status' refers to the ASC 606 recognition stage.
+      This is different from gl_transactions.status (posting status) and
+      accounts_receivable.status (invoice payment status).
+    values: ["recognized", "deferred", "adjusted"]
+
+  - name: original_amount
+    type: DECIMAL(15,2)
+    description: "The original recognized amount before any adjustments."
+    business_context: "Only populated for rows where status = 'adjusted'. NULL otherwise."
+
+  - name: adjustment_reason
+    type: TEXT
+    description: "Free-text explanation for adjusted entries."
+    business_context: "NULL for non-adjusted rows. High null rate (85%) is expected."
+
+  - name: period
+    type: VARCHAR(7)
+    description: "Fiscal period in YYYY-MM format."
+    business_context: "Used for monthly/quarterly roll-ups. Aligns with the fiscal calendar."
+
+sample_queries:
+  - question: "What is quarterly recognized revenue for FY 2025?"
+    sql: |
+      SELECT CASE
+               WHEN period BETWEEN '2025-01' AND '2025-03' THEN 'Q1'
+               WHEN period BETWEEN '2025-04' AND '2025-06' THEN 'Q2'
+               WHEN period BETWEEN '2025-07' AND '2025-09' THEN 'Q3'
+               WHEN period BETWEEN '2025-10' AND '2025-12' THEN 'Q4'
+             END AS quarter,
+             SUM(recognized_amount) AS total_recognized_revenue
+      FROM finance.revenue_recognition
+      WHERE status = 'recognized'
+        AND period >= '2025-01'
+        AND period <= '2025-12'
+      GROUP BY 1
+      ORDER BY 1
+    notes: >
+      Only include status = 'recognized'. Exclude 'deferred' (not yet earned)
+      and 'adjusted' (corrections that modify prior amounts). This is
+      Revenue Definition #1 (GAAP).
+
+  - question: "How much deferred revenue is outstanding?"
+    sql: |
+      SELECT SUM(recognized_amount) AS total_deferred
+      FROM finance.revenue_recognition
+      WHERE status = 'deferred'
+    notes: >
+      Deferred revenue is a liability — cash received but not yet earned.
+      The recognized_amount column on deferred rows represents the amount
+      that will eventually be recognized.

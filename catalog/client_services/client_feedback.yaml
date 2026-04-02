@@ -1,0 +1,88 @@
+table: client_services.client_feedback
+description: >
+  Client satisfaction survey results including NPS and CSAT scores. Each row represents
+  a single survey response from a client. Used for tracking client satisfaction trends
+  and identifying accounts that may need attention.
+
+owner: client-services-team@company.com
+primary_key: feedback_id
+row_count_approx: 400
+refresh_cadence: monthly
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: degraded
+  known_issues:
+    - "nps_score has ~20% null rate for Q1 2025 records due to survey platform migration"
+  null_rates:
+    nps_score: 0.20
+
+relationships:
+  - column: client_id
+    references: client_services.clients.client_id
+    type: many_to_one
+
+columns:
+  - name: feedback_id
+    type: INTEGER
+    description: "Unique identifier for each survey response."
+    business_context: "Auto-incremented surrogate key."
+
+  - name: client_id
+    type: INTEGER
+    description: "Foreign key to the client who submitted the feedback."
+
+  - name: nps_score
+    type: INTEGER
+    description: "Net Promoter Score from the client survey."
+    business_context: >
+      Scale of 0-10. Promoters (9-10), Passives (7-8), Detractors (0-6).
+      Always exclude null values when computing averages.
+    disambiguation: >
+      When a user asks about 'NPS' or 'Net Promoter Score', use this column.
+      When they ask about 'CSAT' or 'customer satisfaction score', use csat_score instead.
+    common_mistake: >
+      ~20% of Q1 2025 records have null nps_score due to a survey platform migration.
+      Always filter out nulls (WHERE nps_score IS NOT NULL) to avoid skewed results.
+
+  - name: csat_score
+    type: DECIMAL(3,1)
+    description: "Customer Satisfaction score from the client survey."
+    business_context: >
+      Scale of 1.0 to 5.0. Higher is better. Typically more complete than nps_score.
+    disambiguation: >
+      When a user asks about 'CSAT' or 'customer satisfaction score', use this column.
+      When they ask about 'NPS' or 'Net Promoter Score', use nps_score instead.
+
+  - name: survey_date
+    type: DATE
+    description: "Date the survey was submitted."
+
+  - name: comments
+    type: TEXT
+    description: "Free-text feedback from the client."
+
+sample_queries:
+  - question: "What is the average NPS by client segment?"
+    sql: |
+      SELECT cl.segment,
+             ROUND(AVG(cf.nps_score), 1) AS avg_nps,
+             COUNT(*) AS response_count
+      FROM client_services.client_feedback cf
+      JOIN client_services.clients cl ON cf.client_id = cl.client_id
+      WHERE cf.nps_score IS NOT NULL
+      GROUP BY cl.segment
+      ORDER BY avg_nps DESC
+    notes: >
+      Always filter WHERE nps_score IS NOT NULL to handle the known data quality
+      issue with Q1 2025 records.
+
+  - question: "What is the average CSAT score over time?"
+    sql: |
+      SELECT DATE_TRUNC('month', survey_date) AS month,
+             ROUND(AVG(csat_score), 2) AS avg_csat,
+             COUNT(*) AS response_count
+      FROM client_services.client_feedback
+      WHERE csat_score IS NOT NULL
+      GROUP BY 1
+      ORDER BY 1

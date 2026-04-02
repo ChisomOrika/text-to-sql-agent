@@ -1,0 +1,41 @@
+table: client_services.clients_v1
+description: >
+  DEPRECATED legacy client table from the old CRM system. This table contains stale
+  data from a previous CRM migration and should not be used for any new queries or
+  analysis.
+
+deprecated: true
+deprecation_note: "Legacy CRM table. Use client_services.clients instead."
+
+owner: client-services-team@company.com
+primary_key: client_id
+row_count_approx: 60
+refresh_cadence: none
+last_refreshed: "2024-09-15T00:00:00Z"
+
+quality:
+  status: stale
+  known_issues:
+    - "Entirely stale data from old CRM migration, last updated 18 months ago"
+  null_rates: {}
+
+relationships: []
+
+columns:
+  - name: client_id
+    type: INTEGER
+    description: "Unique identifier for each client."
+
+  - name: client_name
+    type: VARCHAR(100)
+    description: "Client organization name."
+
+  - name: status
+    type: VARCHAR(20)
+    description: "Client status from the legacy CRM system."
+
+  - name: segment
+    type: VARCHAR(20)
+    description: "Client segment from the legacy CRM system."
+
+sample_queries: []

@@ -1,0 +1,33 @@
+schema: client_services
+description: >
+  Client relationship and engagement data including client accounts, contracts,
+  active engagements, and feedback surveys. This schema supports account management,
+  delivery tracking, and client satisfaction reporting.
+
+owner: client-services-team@company.com
+
+notes:
+  - >
+    The "status" column exists in multiple tables within this schema but has
+    different allowed values in each. Always check the column definition for
+    the specific table being queried:
+      - clients: active / churned / prospect
+      - contracts: active / expired / terminated / pending_renewal
+      - engagements: active / completed / on_hold / at_risk
+  - >
+    client_services.clients_v1 is a DEPRECATED legacy table from the old CRM
+    migration. Always use client_services.clients instead. Do not query
+    clients_v1 for any new analysis.
+  - >
+    To determine if an engagement is over budget, compare consumed_hours > budget_hours
+    in the engagements table.
+  - >
+    NPS scores in client_feedback have a known ~20% null rate for Q1 2025 records
+    due to a survey platform migration. Always exclude nulls when computing averages.
+
+tables:
+  - client_services.clients
+  - client_services.clients_v1
+  - client_services.contracts
+  - client_services.engagements
+  - client_services.client_feedback

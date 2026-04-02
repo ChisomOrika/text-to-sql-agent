@@ -1,0 +1,148 @@
+table: finance.accounts_receivable
+description: >
+  Accounts receivable ledger tracking all customer invoices and their payment
+  status. This is Revenue Definition #2: Billed/Invoiced Revenue. Each row
+  represents a single invoice. Use this table to answer questions about
+  billing, collections, outstanding balances, and aging.
+
+owner: finance-data-team@company.com
+primary_key: invoice_id
+row_count_approx: 1200
+refresh_cadence: daily
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: healthy
+  known_issues: []
+  null_rates:
+    paid_date: 0.35
+    aging_bucket: 0.00
+    notes: 0.60
+
+relationships:
+  - column: customer_id
+    references: client_services.customers.customer_id
+    type: many_to_one
+  - column: contract_id
+    references: client_services.contracts.contract_id
+    type: many_to_one
+
+columns:
+  - name: invoice_id
+    type: INTEGER
+    description: "Unique identifier for each invoice."
+
+  - name: customer_id
+    type: INTEGER
+    description: "Foreign key to the customer who was billed."
+
+  - name: contract_id
+    type: INTEGER
+    description: "Foreign key to the contract this invoice relates to."
+
+  - name: invoice_date
+    type: DATE
+    description: "The date the invoice was issued to the customer."
+    disambiguation: >
+      When a user says 'date' in the context of AR or invoicing, they mean
+      invoice_date. For payment timing, use paid_date.
+
+  - name: due_date
+    type: DATE
+    description: "The date payment is due."
+    business_context: "Typically net-30 or net-60 from invoice_date, depending on contract terms."
+
+  - name: paid_date
+    type: DATE
+    description: "The date payment was received. NULL if not yet paid."
+    business_context: "NULL for open and overdue invoices. Populated for paid and written_off invoices."
+
+  - name: amount
+    type: DECIMAL(15,2)
+    description: "The total invoiced amount."
+    business_context: >
+      This is the billed amount (Revenue Definition #2). Always positive.
+      This is NOT the same as gl_transactions.amount (signed, double-entry)
+      or revenue_recognition.recognized_amount (GAAP timing).
+    disambiguation: >
+      When the user asks about 'billed revenue', 'invoiced revenue', or
+      'what we billed', use this column.
+    common_mistake: >
+      Do not include invoices with status = 'written_off' when calculating
+      billed revenue — those represent uncollectible amounts.
+
+  - name: status
+    type: VARCHAR(20)
+    description: "Invoice payment status."
+    business_context: >
+      'open' = invoice sent, not yet due or recently due.
+      'paid' = payment received in full.
+      'overdue' = past due_date without payment.
+      'written_off' = deemed uncollectible, removed from active AR.
+    disambiguation: >
+      In this table, 'status' refers to the invoice payment lifecycle.
+      This is different from gl_transactions.status (GL posting status) and
+      revenue_recognition.status (ASC 606 recognition stage).
+    values: ["open", "paid", "overdue", "written_off"]
+
+  - name: aging_bucket
+    type: VARCHAR(20)
+    description: "Aging classification for outstanding invoices."
+    business_context: >
+      Categorizes how long an invoice has been outstanding:
+      'current' = not yet past due.
+      '1-30 days' = 1 to 30 days past due.
+      '31-60 days' = 31 to 60 days past due.
+      '61-90 days' = 61 to 90 days past due.
+      '90+ days' = more than 90 days past due.
+      Updated daily. Paid and written-off invoices retain their last aging bucket.
+    values: ["current", "1-30 days", "31-60 days", "61-90 days", "90+ days"]
+
+  - name: notes
+    type: TEXT
+    description: "Free-text notes about the invoice or collection efforts."
+    business_context: "Nullable. Populated mainly for overdue and written-off invoices."
+
+sample_queries:
+  - question: "What is total outstanding AR by aging bucket?"
+    sql: |
+      SELECT aging_bucket,
+             COUNT(*) AS invoice_count,
+             SUM(amount) AS total_outstanding
+      FROM finance.accounts_receivable
+      WHERE status IN ('open', 'overdue')
+      GROUP BY aging_bucket
+      ORDER BY CASE aging_bucket
+                 WHEN 'current' THEN 1
+                 WHEN '1-30 days' THEN 2
+                 WHEN '31-60 days' THEN 3
+                 WHEN '61-90 days' THEN 4
+                 WHEN '90+ days' THEN 5
+               END
+    notes: >
+      Only include open and overdue invoices for outstanding AR.
+      Exclude paid and written_off.
+
+  - question: "What is total billed revenue for Q1 2026?"
+    sql: |
+      SELECT SUM(amount) AS billed_revenue
+      FROM finance.accounts_receivable
+      WHERE status != 'written_off'
+        AND invoice_date >= '2026-01-01'
+        AND invoice_date < '2026-04-01'
+    notes: >
+      This is Revenue Definition #2 (Billed/Invoiced). Excludes written-off
+      invoices. This number will differ from GAAP recognized revenue
+      (revenue_recognition) and cash-basis revenue (gl_transactions).
+
+  - question: "Which customers have overdue invoices over $10,000?"
+    sql: |
+      SELECT customer_id,
+             COUNT(*) AS overdue_count,
+             SUM(amount) AS total_overdue
+      FROM finance.accounts_receivable
+      WHERE status = 'overdue'
+      GROUP BY customer_id
+      HAVING SUM(amount) > 10000
+      ORDER BY total_overdue DESC
+    notes: "Useful for collections prioritization."

@@ -1,0 +1,148 @@
+table: operations.timesheets
+description: >
+  Daily timesheet entries recording hours worked by employees against work orders.
+  This table is the foundation for utilization analysis, billable hours tracking,
+  and work order cost accumulation. Only approved timesheets should be used for
+  reporting.
+
+owner: operations-team@company.com
+primary_key: timesheet_id
+row_count_approx: 15000
+refresh_cadence: daily
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: degraded
+  known_issues:
+    - field: approved_by
+      issue: >
+        approved_by has a 15% NULL rate for timesheets submitted between
+        January and March 2026. This is caused by an approval workflow bug
+        where the approver ID was not captured despite the timesheet being
+        moved to status = 'approved'.
+      severity: medium
+      workaround: >
+        For utilization and billing calculations, rely on status = 'approved'
+        rather than approved_by IS NOT NULL. The hours are valid even when
+        the approver is not recorded.
+  null_rates:
+    approved_by: 0.20
+
+relationships:
+  - column: employee_id
+    references: operations.staffing.employee_id
+    type: many_to_one
+  - column: work_order_id
+    references: operations.work_orders.work_order_id
+    type: many_to_one
+  - column: approved_by
+    references: operations.staffing.employee_id
+    type: many_to_one
+
+columns:
+  - name: timesheet_id
+    type: INTEGER
+    description: Unique identifier for the timesheet entry.
+    business_context: Primary key.
+
+  - name: employee_id
+    type: INTEGER
+    description: The employee who logged the time.
+    business_context: Links to operations.staffing for employee name, department, and rates.
+
+  - name: work_order_id
+    type: INTEGER
+    description: The work order this time was logged against.
+    business_context: Links to operations.work_orders for engagement and client context.
+
+  - name: work_date
+    type: DATE
+    description: The date the work was performed.
+
+  - name: hours
+    type: DECIMAL(5,2)
+    description: Number of hours logged for this entry.
+    business_context: >
+      Individual daily entries. Sum across entries for total hours per employee
+      or work order.
+    common_mistake: >
+      Do not assume one row per employee per day. An employee may have multiple
+      timesheet entries on the same day for different work orders.
+
+  - name: billable
+    type: BOOLEAN
+    description: Whether the logged hours are billable to the client.
+    business_context: >
+      Critical for utilization calculations. Utilization rate =
+      SUM(hours) WHERE billable = TRUE AND status = 'approved' /
+      SUM(hours) WHERE status = 'approved'.
+    common_mistake: >
+      Non-billable hours still count in the denominator for utilization.
+      Only the numerator is restricted to billable = TRUE.
+
+  - name: status
+    type: VARCHAR(20)
+    description: Approval status of the timesheet entry.
+    values: [submitted, approved, rejected]
+    business_context: >
+      Only approved timesheets should be used for utilization, billing, and
+      cost calculations. Submitted entries are pending review; rejected entries
+      should be excluded entirely.
+    disambiguation: >
+      These statuses differ from work_orders (draft/in_progress/completed/cancelled)
+      and staffing (active/on_leave/terminated).
+    common_mistake: >
+      Do not include submitted or rejected timesheets in utilization or billing
+      calculations. Always filter status = 'approved'.
+
+  - name: submitted_at
+    type: TIMESTAMP
+    description: Timestamp when the employee submitted the timesheet entry.
+
+  - name: approved_by
+    type: INTEGER
+    description: Employee ID of the person who approved the timesheet.
+    business_context: >
+      Links to operations.staffing.employee_id. May be NULL due to the known
+      approval workflow bug affecting Jan-Mar 2026 data.
+    common_mistake: >
+      Do not use approved_by IS NOT NULL as a filter for approved timesheets.
+      Use status = 'approved' instead, since the bug causes valid approvals
+      to have NULL approved_by.
+
+sample_queries:
+  - question: "What is the utilization rate by department for the current quarter?"
+    sql: |
+      SELECT
+          d.department_name,
+          ROUND(
+              100.0 * SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END)
+              / NULLIF(SUM(t.hours), 0),
+              1
+          ) AS utilization_rate_pct
+      FROM operations.timesheets t
+      JOIN operations.staffing s ON t.employee_id = s.employee_id
+      JOIN operations.departments d ON s.department_code = d.department_code
+      WHERE t.status = 'approved'
+        AND t.work_date >= DATE_TRUNC('quarter', CURRENT_DATE)
+      GROUP BY d.department_name
+      ORDER BY utilization_rate_pct DESC
+    notes: >
+      Utilization = billable approved hours / total approved hours. Only
+      approved timesheets are included. Non-billable hours are in the
+      denominator but not the numerator.
+
+  - question: "How many hours were logged per employee last month?"
+    sql: |
+      SELECT
+          s.full_name,
+          SUM(t.hours) AS total_hours,
+          SUM(CASE WHEN t.billable THEN t.hours ELSE 0 END) AS billable_hours
+      FROM operations.timesheets t
+      JOIN operations.staffing s ON t.employee_id = s.employee_id
+      WHERE t.status = 'approved'
+        AND t.work_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 month'
+        AND t.work_date < DATE_TRUNC('month', CURRENT_DATE)
+      GROUP BY s.full_name
+      ORDER BY total_hours DESC
+    notes: "Restricted to approved timesheets only."

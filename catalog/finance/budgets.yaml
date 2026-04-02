@@ -1,0 +1,124 @@
+table: finance.budgets
+description: >
+  Annual and revised budget allocations by department, account code, and fiscal
+  period. Used for variance analysis (budget vs. actual) and financial planning.
+  Each row represents one department's budget for one account code in one month.
+
+owner: finance-data-team@company.com
+primary_key: budget_id
+row_count_approx: 576
+refresh_cadence: monthly
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: healthy
+  known_issues: []
+  null_rates:
+    revised_amount: 0.70
+    revision_date: 0.70
+    revision_reason: 0.70
+
+relationships:
+  - column: department_id
+    references: operations.departments.department_id
+    type: many_to_one
+  - column: account_code
+    references: finance.gl_transactions.account_code
+    type: many_to_one
+
+columns:
+  - name: budget_id
+    type: INTEGER
+    description: "Unique identifier for each budget line."
+
+  - name: fiscal_year
+    type: INTEGER
+    description: "The fiscal year this budget applies to."
+    values: [2025, 2026]
+
+  - name: period
+    type: VARCHAR(7)
+    description: "Fiscal period in YYYY-MM format."
+    business_context: "Each row covers one calendar month."
+
+  - name: department_id
+    type: INTEGER
+    description: "Foreign key to the department this budget is allocated to."
+
+  - name: account_code
+    type: VARCHAR(10)
+    description: "Chart-of-accounts code this budget line covers."
+    business_context: "Same coding scheme as gl_transactions (4xxx=revenue, 5xxx=COGS, 6xxx=opex, 7xxx=depreciation)."
+
+  - name: original_amount
+    type: DECIMAL(15,2)
+    description: "The originally approved budget amount for this line."
+    business_context: "Set during the annual budgeting process. Always populated."
+
+  - name: revised_amount
+    type: DECIMAL(15,2)
+    description: "The mid-year revised budget amount, if a revision occurred."
+    business_context: >
+      NULL when no mid-year revision has been made. When populated, this is the
+      current approved budget and should be used instead of original_amount.
+      Approximately 30% of budget lines have been revised.
+    disambiguation: >
+      When the user asks for 'the budget', use COALESCE(revised_amount, original_amount)
+      to get the most current approved figure.
+    common_mistake: >
+      Do not use original_amount alone for current budget figures — it ignores
+      mid-year revisions. Always use COALESCE(revised_amount, original_amount).
+
+  - name: revision_date
+    type: DATE
+    description: "The date the budget revision was approved. NULL if not revised."
+
+  - name: revision_reason
+    type: TEXT
+    description: "Explanation for the mid-year budget revision. NULL if not revised."
+
+sample_queries:
+  - question: "What is the budget vs actual variance for operating expenses in Q1 2026?"
+    sql: |
+      SELECT b.department_id,
+             SUM(COALESCE(b.revised_amount, b.original_amount)) AS budget,
+             SUM(g.actual) AS actual,
+             SUM(g.actual) - SUM(COALESCE(b.revised_amount, b.original_amount)) AS variance
+      FROM finance.budgets b
+      LEFT JOIN (
+        SELECT department_id,
+               account_code,
+               DATE_TRUNC('month', transaction_date) AS period_month,
+               SUM(amount) AS actual
+        FROM finance.gl_transactions
+        WHERE status = 'posted'
+          AND account_code LIKE '6%'
+          AND transaction_date >= '2026-01-01'
+          AND transaction_date < '2026-04-01'
+        GROUP BY department_id, account_code, DATE_TRUNC('month', transaction_date)
+      ) g ON b.department_id = g.department_id
+          AND b.account_code = g.account_code
+          AND b.period = TO_CHAR(g.period_month, 'YYYY-MM')
+      WHERE b.account_code LIKE '6%'
+        AND b.period >= '2026-01'
+        AND b.period <= '2026-03'
+      GROUP BY b.department_id
+      ORDER BY variance DESC
+    notes: >
+      Uses COALESCE(revised_amount, original_amount) to get the current budget.
+      Positive variance means over budget. Joins to gl_transactions for actuals,
+      filtered to posted entries and opex accounts (6xxx).
+
+  - question: "Which budget lines were revised for 2026?"
+    sql: |
+      SELECT department_id,
+             account_code,
+             period,
+             original_amount,
+             revised_amount,
+             revision_reason
+      FROM finance.budgets
+      WHERE fiscal_year = 2026
+        AND revised_amount IS NOT NULL
+      ORDER BY revision_date DESC
+    notes: "Shows all mid-year budget revisions with their reasons."

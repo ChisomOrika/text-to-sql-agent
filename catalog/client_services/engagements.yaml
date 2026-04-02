@@ -1,0 +1,114 @@
+table: client_services.engagements
+description: >
+  Active and historical client engagements tracking delivery progress, budget
+  consumption, and risk status. Each row represents a single engagement (project or
+  workstream) delivered under a contract. A contract may have multiple engagements.
+
+owner: client-services-team@company.com
+primary_key: engagement_id
+row_count_approx: 200
+refresh_cadence: daily
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: healthy
+  known_issues: []
+  null_rates: {}
+
+relationships:
+  - column: contract_id
+    references: client_services.contracts.contract_id
+    type: many_to_one
+
+columns:
+  - name: engagement_id
+    type: INTEGER
+    description: "Unique identifier for each engagement."
+    business_context: "Auto-incremented surrogate key."
+
+  - name: contract_id
+    type: INTEGER
+    description: "Foreign key to the contract this engagement falls under."
+
+  - name: engagement_name
+    type: VARCHAR(200)
+    description: "Descriptive name of the engagement or project."
+
+  - name: engagement_type
+    type: VARCHAR(30)
+    description: "The type of work being delivered."
+    business_context: >
+      'implementation' = building or deploying a solution for the client.
+      'advisory' = strategic consulting or assessment work.
+      'managed_services' = ongoing operational support.
+      'staff_aug' = staff augmentation / embedded resources.
+    values: ["implementation", "advisory", "managed_services", "staff_aug"]
+
+  - name: status
+    type: VARCHAR(20)
+    description: "Current delivery status of the engagement."
+    business_context: >
+      'active' engagements are currently being delivered.
+      'completed' engagements have been finished and closed out.
+      'on_hold' engagements are temporarily paused.
+      'at_risk' engagements have been flagged for issues (scope, budget, timeline, or client satisfaction).
+    disambiguation: >
+      In this table, 'status' refers to the engagement delivery lifecycle.
+      This is different from status in clients (client relationship) and
+      contracts (contract lifecycle).
+    values: ["active", "completed", "on_hold", "at_risk"]
+
+  - name: budget_hours
+    type: DECIMAL(10,2)
+    description: "Total budgeted hours for this engagement."
+    business_context: >
+      The contracted or planned number of hours allocated to this engagement.
+    disambiguation: >
+      To determine if an engagement is over budget, compare consumed_hours > budget_hours.
+
+  - name: consumed_hours
+    type: DECIMAL(10,2)
+    description: "Total hours consumed (worked) so far on this engagement."
+    business_context: >
+      Tracks actual hours spent. When consumed_hours exceeds budget_hours,
+      the engagement is over budget.
+
+  - name: start_date
+    type: DATE
+    description: "Engagement start date."
+
+  - name: end_date
+    type: DATE
+    description: "Engagement planned or actual end date."
+
+sample_queries:
+  - question: "Which engagements are currently at risk?"
+    sql: |
+      SELECT e.engagement_id,
+             e.engagement_name,
+             e.engagement_type,
+             e.budget_hours,
+             e.consumed_hours,
+             cl.client_name
+      FROM client_services.engagements e
+      JOIN client_services.contracts c ON e.contract_id = c.contract_id
+      JOIN client_services.clients cl ON c.client_id = cl.client_id
+      WHERE e.status = 'at_risk'
+      ORDER BY e.engagement_name
+
+  - question: "Which engagements are over budget?"
+    sql: |
+      SELECT e.engagement_id,
+             e.engagement_name,
+             e.budget_hours,
+             e.consumed_hours,
+             ROUND(e.consumed_hours - e.budget_hours, 2) AS hours_over_budget,
+             cl.client_name
+      FROM client_services.engagements e
+      JOIN client_services.contracts c ON e.contract_id = c.contract_id
+      JOIN client_services.clients cl ON c.client_id = cl.client_id
+      WHERE e.consumed_hours > e.budget_hours
+      ORDER BY hours_over_budget DESC
+    notes: >
+      An engagement is over budget when consumed_hours exceeds budget_hours.
+      This includes engagements of any status (active, completed, etc.).

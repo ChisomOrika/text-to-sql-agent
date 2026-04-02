@@ -1,0 +1,147 @@
+table: finance.gl_transactions
+description: >
+  General ledger transaction journal containing all posted, pending, and reversed
+  entries for the current fiscal year (2025-01-01 onward). Each row is a single
+  journal entry line. This is the authoritative source for cash-basis revenue
+  (Revenue Definition #3) and all expense reporting.
+
+owner: finance-data-team@company.com
+primary_key: transaction_id
+row_count_approx: 3300
+refresh_cadence: daily
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: healthy
+  known_issues: []
+  null_rates:
+    posted_date: 0.05
+    cost_center: 0.01
+    description: 0.00
+
+relationships:
+  - column: account_code
+    references: finance.budgets.account_code
+    type: many_to_one
+  - column: department_id
+    references: operations.departments.department_id
+    type: many_to_one
+
+columns:
+  - name: transaction_id
+    type: INTEGER
+    description: "Unique identifier for each journal entry line."
+    business_context: "Auto-incremented surrogate key."
+
+  - name: transaction_date
+    type: DATE
+    description: "The date the business event occurred."
+    business_context: "This is the economically meaningful date — when the sale happened, the expense was incurred, etc."
+    disambiguation: >
+      When a user says 'date' without qualification, they almost always mean
+      transaction_date, not posted_date.
+
+  - name: posted_date
+    type: DATE
+    description: "The date the entry was posted to the general ledger."
+    business_context: >
+      Can lag transaction_date by days or weeks, especially around month-end close.
+      Nullable for pending entries that have not yet been posted.
+    disambiguation: >
+      Only use posted_date when the user explicitly asks about 'posting date',
+      'GL posting', or 'when it hit the ledger'.
+
+  - name: account_code
+    type: VARCHAR(10)
+    description: "Chart-of-accounts code for this entry."
+    business_context: >
+      The first digit encodes the account category:
+        4xxx = Revenue accounts
+        5xxx = Cost of goods sold and salaries
+        6xxx = Operating expenses (SG&A, marketing, rent, etc.)
+        7xxx = Depreciation and amortization
+    disambiguation: >
+      When the user says 'revenue', filter to account_code LIKE '4%'.
+      When the user says 'expenses', filter to account_code LIKE '5%' OR '6%' OR '7%'.
+      When the user says 'operating expenses' or 'opex', filter to account_code LIKE '6%' only.
+    common_mistake: >
+      Do NOT use account_code LIKE '5%' alone for 'expenses' — that is only
+      COGS/salaries. True total expenses include 5xxx, 6xxx, and 7xxx.
+
+  - name: amount
+    type: DECIMAL(15,2)
+    description: "Signed monetary amount of the journal entry line."
+    business_context: >
+      Positive values are debits; negative values are credits.
+      For revenue accounts (4xxx), the amount is typically negative (credit).
+      For expense accounts (5xxx-7xxx), the amount is typically positive (debit).
+    common_mistake: >
+      SUM(amount) across all account codes gives zero (double-entry accounting).
+      To compute total revenue, use: SUM(amount) WHERE account_code LIKE '4%'
+      — the result will be negative, so negate it or use ABS() for display.
+      Never SUM(amount) without filtering by account_code range.
+
+  - name: status
+    type: VARCHAR(20)
+    description: "GL posting status of the entry."
+    business_context: >
+      Only 'posted' entries should be included in financial reports.
+      'pending' entries are awaiting approval or month-end close.
+      'reversed' entries are corrections — they zero out a previous entry.
+    disambiguation: >
+      In this table, 'status' means the GL posting lifecycle status.
+      This is different from status in revenue_recognition (recognition stage)
+      and accounts_receivable (invoice payment status).
+    values: ["posted", "pending", "reversed"]
+
+  - name: department_id
+    type: INTEGER
+    description: "Foreign key to the department that owns this entry."
+
+  - name: cost_center
+    type: VARCHAR(20)
+    description: "Cost center code for expense allocation."
+    business_context: "Nullable. Used for internal management reporting and budget tracking."
+
+  - name: description
+    type: TEXT
+    description: "Free-text description of the journal entry."
+
+  - name: created_by
+    type: VARCHAR(50)
+    description: "Username of the person or system that created the entry."
+
+sample_queries:
+  - question: "What is total revenue for Q1 2026?"
+    sql: |
+      SELECT ABS(SUM(amount)) AS total_revenue
+      FROM finance.gl_transactions
+      WHERE account_code LIKE '4%'
+        AND status = 'posted'
+        AND transaction_date >= '2026-01-01'
+        AND transaction_date < '2026-04-01'
+    notes: >
+      This is Revenue Definition #3 (cash-basis). Amount is negative for revenue
+      accounts, so we use ABS(). Always filter status = 'posted' to exclude
+      pending and reversed entries.
+
+  - question: "Show monthly operating expenses for 2026"
+    sql: |
+      SELECT DATE_TRUNC('month', transaction_date) AS month,
+             SUM(amount) AS total_opex
+      FROM finance.gl_transactions
+      WHERE account_code LIKE '6%'
+        AND status = 'posted'
+        AND transaction_date >= '2026-01-01'
+      GROUP BY 1
+      ORDER BY 1
+    notes: >
+      Operating expenses (6xxx) are positive (debit), so SUM works directly.
+      This excludes COGS/salaries (5xxx) and depreciation (7xxx).
+
+  - question: "How many journal entries are still pending?"
+    sql: |
+      SELECT COUNT(*) AS pending_count
+      FROM finance.gl_transactions
+      WHERE status = 'pending'
+    notes: "Useful for month-end close monitoring."

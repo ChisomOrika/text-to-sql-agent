@@ -1,0 +1,120 @@
+table: operations.staffing
+description: >
+  Employee roster with department assignments, billing rates, cost rates, and
+  employment status. This is the primary dimension table for people-related
+  analysis including headcount, margin calculations, and resource availability.
+
+owner: operations-team@company.com
+primary_key: employee_id
+row_count_approx: 150
+refresh_cadence: weekly
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: healthy
+  known_issues: []
+  null_rates:
+    termination_date: 0.85
+    hourly_bill_rate: 0.05
+
+relationships:
+  - column: department_code
+    references: operations.departments.department_code
+    type: many_to_one
+
+columns:
+  - name: employee_id
+    type: INTEGER
+    description: Unique identifier for the employee.
+    business_context: Primary key; referenced by timesheets.employee_id and work_orders.lead_consultant_id.
+
+  - name: full_name
+    type: VARCHAR(200)
+    description: Full name of the employee.
+
+  - name: department_code
+    type: VARCHAR(10)
+    description: Code of the department the employee belongs to.
+    business_context: Foreign key to operations.departments for department name and hierarchy.
+
+  - name: title
+    type: VARCHAR(100)
+    description: Job title of the employee.
+
+  - name: hourly_cost_rate
+    type: DECIMAL(8,2)
+    description: Internal cost rate per hour for this employee (USD).
+    business_context: >
+      This is the company's internal cost to employ this person per hour.
+      Used for margin and profitability calculations.
+    disambiguation: >
+      This is NOT the rate billed to clients. The client-facing rate is
+      hourly_bill_rate. Margin = hourly_bill_rate - hourly_cost_rate.
+    common_mistake: Do not use hourly_cost_rate in revenue calculations.
+
+  - name: hourly_bill_rate
+    type: DECIMAL(8,2)
+    description: External billing rate per hour charged to clients (USD).
+    business_context: >
+      This is the rate billed to clients for this employee's time. May be
+      NULL for employees who are not client-facing (e.g., internal staff).
+    disambiguation: >
+      This is NOT the internal cost. The internal cost is hourly_cost_rate.
+      Margin = hourly_bill_rate - hourly_cost_rate.
+
+  - name: status
+    type: VARCHAR(20)
+    description: Current employment status.
+    values: [active, on_leave, terminated]
+    disambiguation: >
+      These statuses are specific to the staffing table and differ from statuses
+      in other operations tables. "active" means currently employed and available;
+      "on_leave" means temporarily unavailable; "terminated" means no longer employed.
+    common_mistake: >
+      Do not filter on status='inactive' or status='employed' — those values
+      do not exist. Use 'active' for current employees.
+
+  - name: hire_date
+    type: DATE
+    description: Date the employee was hired.
+
+  - name: termination_date
+    type: DATE
+    description: Date the employee was terminated or left the company.
+    business_context: >
+      NULL for active and on-leave employees. Only populated when
+      status = 'terminated'.
+    common_mistake: >
+      Do not use termination_date IS NULL as a proxy for active status.
+      An employee on leave also has a NULL termination_date. Filter on
+      status = 'active' instead.
+
+sample_queries:
+  - question: "What is the active headcount by department?"
+    sql: |
+      SELECT
+          d.department_name,
+          COUNT(*) AS active_headcount
+      FROM operations.staffing s
+      JOIN operations.departments d
+          ON s.department_code = d.department_code
+      WHERE s.status = 'active'
+      GROUP BY d.department_name
+      ORDER BY active_headcount DESC
+    notes: "Excludes employees on leave and terminated employees."
+
+  - question: "What is the average margin per hour by department?"
+    sql: |
+      SELECT
+          d.department_name,
+          ROUND(AVG(s.hourly_bill_rate - s.hourly_cost_rate), 2) AS avg_margin_per_hour
+      FROM operations.staffing s
+      JOIN operations.departments d
+          ON s.department_code = d.department_code
+      WHERE s.status = 'active'
+        AND s.hourly_bill_rate IS NOT NULL
+      GROUP BY d.department_name
+      ORDER BY avg_margin_per_hour DESC
+    notes: >
+      Excludes employees without a bill rate (non-client-facing staff) to
+      avoid skewing the average.

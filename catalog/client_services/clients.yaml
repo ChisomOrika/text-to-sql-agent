@@ -1,0 +1,81 @@
+table: client_services.clients
+description: >
+  Master client account table containing all current and historical client records.
+  Each row represents a single client organization. This is the authoritative source
+  for client segmentation and account ownership information.
+
+owner: client-services-team@company.com
+primary_key: client_id
+row_count_approx: 80
+refresh_cadence: weekly
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: healthy
+  known_issues: []
+  null_rates: {}
+
+relationships:
+  - column: account_manager_id
+    references: operations.staffing.employee_id
+    type: many_to_one
+
+columns:
+  - name: client_id
+    type: INTEGER
+    description: "Unique identifier for each client organization."
+    business_context: "Auto-incremented surrogate key."
+
+  - name: client_name
+    type: VARCHAR(100)
+    description: "Legal or common name of the client organization."
+
+  - name: status
+    type: VARCHAR(20)
+    description: "Current lifecycle status of the client relationship."
+    business_context: >
+      'active' clients have at least one active contract or engagement.
+      'churned' clients had a relationship that has since ended.
+      'prospect' clients are in the sales pipeline but have not yet signed a contract.
+    disambiguation: >
+      In this table, 'status' refers to the client relationship lifecycle.
+      This is different from status in contracts (contract lifecycle) and
+      engagements (engagement delivery status).
+    values: ["active", "churned", "prospect"]
+
+  - name: segment
+    type: VARCHAR(20)
+    description: "Client size/tier segmentation."
+    business_context: >
+      'enterprise' = large organizations, typically highest contract values.
+      'mid_market' = mid-sized organizations.
+      'smb' = small and medium businesses.
+    values: ["enterprise", "mid_market", "smb"]
+
+  - name: account_manager_id
+    type: INTEGER
+    description: "Foreign key to the employee who manages this client account."
+    business_context: "Links to operations.staffing to identify the assigned account manager."
+
+  - name: created_date
+    type: DATE
+    description: "Date the client record was created."
+
+sample_queries:
+  - question: "How many clients are in each segment?"
+    sql: |
+      SELECT segment,
+             COUNT(*) AS client_count
+      FROM client_services.clients
+      GROUP BY segment
+      ORDER BY client_count DESC
+
+  - question: "List all churned clients"
+    sql: |
+      SELECT client_id,
+             client_name,
+             segment,
+             created_date
+      FROM client_services.clients
+      WHERE status = 'churned'
+      ORDER BY client_name

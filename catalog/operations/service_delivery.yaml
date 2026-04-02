@@ -1,0 +1,122 @@
+table: operations.service_delivery
+description: >
+  Tracks delivery milestones and deliverables for client engagements. Each row
+  represents a milestone with a planned date, actual delivery date, monetary
+  value, and acceptance status. This table is the source of truth for Revenue
+  Definition #3: Delivered / Milestone-based Revenue.
+
+owner: operations-team@company.com
+primary_key: delivery_id
+row_count_approx: 300
+refresh_cadence: weekly
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: degraded
+  known_issues:
+    - field: actual_date
+      issue: >
+        actual_date is NULL for approximately 30% of milestones where
+        acceptance_status = 'accepted'. This is caused by a data entry
+        backlog — delivery dates are being confirmed but not entered promptly.
+      severity: medium
+      workaround: >
+        When actual_date is NULL for accepted milestones, you may fall back
+        to sign_off_date as a proxy for the delivery date. Note this in any
+        query results.
+  null_rates:
+    actual_date: 0.40
+    sign_off_date: 0.45
+
+relationships:
+  - column: engagement_id
+    references: client_services.engagements.engagement_id
+    type: many_to_one
+
+columns:
+  - name: delivery_id
+    type: INTEGER
+    description: Unique identifier for the delivery milestone.
+    business_context: Primary key.
+
+  - name: engagement_id
+    type: INTEGER
+    description: The engagement this milestone belongs to.
+    business_context: Links to client_services.engagements for client and contract context.
+
+  - name: milestone_name
+    type: VARCHAR(200)
+    description: Human-readable name of the milestone or deliverable.
+
+  - name: planned_date
+    type: DATE
+    description: Originally planned delivery date for this milestone.
+
+  - name: actual_date
+    type: DATE
+    description: Actual date the milestone was delivered.
+    business_context: >
+      NULL means the milestone has not been delivered yet, OR the date has not
+      been entered due to the known data entry backlog.
+    common_mistake: >
+      Do not assume actual_date IS NULL means the milestone is undelivered.
+      Check acceptance_status to determine true delivery state — an accepted
+      milestone with a NULL actual_date is a data quality gap, not an open item.
+
+  - name: deliverable_value
+    type: DECIMAL(15,2)
+    description: Monetary value of the deliverable in USD.
+    business_context: >
+      This is Revenue Definition #3: Delivered / Milestone-based Revenue.
+      Delivered revenue = SUM(deliverable_value) WHERE acceptance_status = 'accepted'.
+    disambiguation: >
+      This is NOT the same as GAAP recognized revenue (finance.revenue_recognition)
+      or invoiced revenue (finance.accounts_receivable). See the finance schema
+      notes for the three revenue definitions.
+
+  - name: acceptance_status
+    type: VARCHAR(20)
+    description: Client acceptance status for this deliverable.
+    values: [pending, accepted, rejected, revision_requested]
+    business_context: >
+      Only milestones with acceptance_status = 'accepted' count toward delivered
+      revenue. Do not include pending, rejected, or revision_requested.
+    common_mistake: >
+      This column is named acceptance_status, not status. Do not filter on
+      a column named "status" — it does not exist in this table.
+
+  - name: sign_off_date
+    type: DATE
+    description: Date the client formally signed off on the deliverable.
+    business_context: >
+      Populated when the client accepts or rejects the milestone. Can be used
+      as a proxy for actual_date when actual_date is NULL for accepted milestones.
+
+sample_queries:
+  - question: "What is the total delivered revenue by quarter?"
+    sql: |
+      SELECT
+          DATE_TRUNC('quarter', COALESCE(sd.actual_date, sd.sign_off_date)) AS delivery_quarter,
+          SUM(sd.deliverable_value) AS delivered_revenue
+      FROM operations.service_delivery sd
+      WHERE sd.acceptance_status = 'accepted'
+        AND COALESCE(sd.actual_date, sd.sign_off_date) IS NOT NULL
+      GROUP BY delivery_quarter
+      ORDER BY delivery_quarter
+    notes: >
+      Uses COALESCE(actual_date, sign_off_date) to handle the known data
+      quality issue where actual_date is NULL for some accepted milestones.
+      Revenue Definition #3 only includes accepted deliverables.
+
+  - question: "Which milestones are pending acceptance and past their planned date?"
+    sql: |
+      SELECT
+          sd.delivery_id,
+          sd.milestone_name,
+          sd.planned_date,
+          sd.deliverable_value
+      FROM operations.service_delivery sd
+      WHERE sd.acceptance_status = 'pending'
+        AND sd.planned_date < CURRENT_DATE
+      ORDER BY sd.planned_date ASC
+    notes: "Helps identify milestones that may be stuck in review."

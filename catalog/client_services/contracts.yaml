@@ -1,0 +1,106 @@
+table: client_services.contracts
+description: >
+  Client contract records tracking agreement terms, financial values, and lifecycle
+  status. Each row represents a single contract between the company and a client.
+  A client may have multiple contracts (e.g., one per service line or renewal period).
+
+owner: client-services-team@company.com
+primary_key: contract_id
+row_count_approx: 120
+refresh_cadence: weekly
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: healthy
+  known_issues: []
+  null_rates: {}
+
+relationships:
+  - column: client_id
+    references: client_services.clients.client_id
+    type: many_to_one
+
+columns:
+  - name: contract_id
+    type: INTEGER
+    description: "Unique identifier for each contract."
+    business_context: "Auto-incremented surrogate key."
+
+  - name: client_id
+    type: INTEGER
+    description: "Foreign key to the client who holds this contract."
+
+  - name: contract_type
+    type: VARCHAR(30)
+    description: "The commercial model for this contract."
+    business_context: >
+      'fixed_fee' = lump-sum payment for a defined scope of work.
+      'time_and_materials' = billed by hours worked at agreed rates.
+      'retainer' = recurring monthly fee for ongoing availability.
+    values: ["fixed_fee", "time_and_materials", "retainer"]
+
+  - name: status
+    type: VARCHAR(20)
+    description: "Current lifecycle status of the contract."
+    business_context: >
+      'active' contracts are currently in effect.
+      'expired' contracts have passed their end date without renewal.
+      'terminated' contracts were ended early by either party.
+      'pending_renewal' contracts are approaching expiration and under negotiation.
+    disambiguation: >
+      In this table, 'status' refers to the contract lifecycle.
+      This is different from status in clients (client relationship) and
+      engagements (engagement delivery status).
+    values: ["active", "expired", "terminated", "pending_renewal"]
+
+  - name: total_value
+    type: DECIMAL(15,2)
+    description: "Total contract value (TCV) over the full contract term."
+    business_context: >
+      TCV represents the total monetary commitment across the entire contract duration.
+      For multi-year contracts, this is the sum of all years.
+    disambiguation: >
+      When a user asks about 'contract value' or 'TCV', use total_value.
+      When they ask about 'annual value' or 'ACV', use annual_value instead.
+
+  - name: annual_value
+    type: DECIMAL(15,2)
+    description: "Annualized contract value (ACV)."
+    business_context: >
+      ACV represents the annual run-rate value of the contract. For a 3-year
+      contract worth $3M total, the ACV would be $1M.
+    disambiguation: >
+      When a user asks about 'annual value', 'ACV', or 'yearly value', use annual_value.
+      When they ask about 'total value' or 'TCV', use total_value instead.
+
+  - name: start_date
+    type: DATE
+    description: "Contract effective start date."
+
+  - name: end_date
+    type: DATE
+    description: "Contract scheduled end date."
+
+sample_queries:
+  - question: "What is the total contract value by contract type?"
+    sql: |
+      SELECT contract_type,
+             SUM(total_value) AS total_tcv,
+             SUM(annual_value) AS total_acv,
+             COUNT(*) AS contract_count
+      FROM client_services.contracts
+      WHERE status = 'active'
+      GROUP BY contract_type
+      ORDER BY total_tcv DESC
+
+  - question: "Which contracts are pending renewal?"
+    sql: |
+      SELECT c.contract_id,
+             cl.client_name,
+             c.contract_type,
+             c.total_value,
+             c.end_date
+      FROM client_services.contracts c
+      JOIN client_services.clients cl ON c.client_id = cl.client_id
+      WHERE c.status = 'pending_renewal'
+      ORDER BY c.end_date

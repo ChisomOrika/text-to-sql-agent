@@ -1,0 +1,34 @@
+schema: operations
+description: >
+  Operational data covering work orders, service delivery milestones, employee
+  staffing, timesheets, and department structure. This schema supports resource
+  planning, utilization analysis, and project delivery tracking.
+
+owner: operations-team@company.com
+
+notes:
+  - >
+    IMPORTANT: Utilization rate is calculated from the timesheets table:
+    utilization_rate = SUM(hours) WHERE billable=TRUE AND status='approved'
+                     / SUM(hours) WHERE status='approved'.
+    Only approved timesheets should be included; submitted or rejected entries
+    must be excluded.
+  - >
+    The "status" column exists in multiple tables within this schema but has
+    different allowed values in each. Always check the column definition for
+    the specific table being queried:
+      - work_orders: draft / in_progress / completed / cancelled
+      - service_delivery: acceptance_status (pending / accepted / rejected / revision_requested)
+      - staffing: active / on_leave / terminated
+      - timesheets: submitted / approved / rejected
+  - >
+    Revenue Definition #3 (Delivered / Milestone-based Revenue) lives in this
+    schema — see operations.service_delivery. It is calculated as
+    SUM(deliverable_value) WHERE acceptance_status = 'accepted'.
+
+tables:
+  - operations.work_orders
+  - operations.service_delivery
+  - operations.staffing
+  - operations.timesheets
+  - operations.departments

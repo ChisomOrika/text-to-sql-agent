@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "text-to-sql-agent"
+version = "0.1.0"
+description = "Text-to-SQL agent with data catalog and quality awareness"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "python-dotenv>=1.0,<2",
+    "duckdb>=1.1,<2",
+    "anthropic>=0.42,<1",
+    "langgraph>=0.2.60,<1",
+    "langchain-core>=0.3.28,<1",
+    "sentence-transformers>=3.3,<4",
+    "numpy>=2.0,<3",
+    "pyyaml>=6.0,<7",
+    "sqlparse>=0.5,<1",
+    "streamlit>=1.41,<2",
+    "pandas>=2.2,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.25,<1",
+    "httpx>=0.28,<1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "config*", "eval*"]

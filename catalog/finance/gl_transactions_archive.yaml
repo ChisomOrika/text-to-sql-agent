@@ -1,0 +1,97 @@
+table: finance.gl_transactions_archive
+description: >
+  Archived general ledger transactions for fiscal years prior to 2025.
+  Contains the same schema as finance.gl_transactions but holds only historical
+  data (through 2024-12-31). This table is no longer being refreshed.
+
+deprecated: true
+deprecation_note: >
+  Use finance.gl_transactions for any current-year (2025+) queries.
+  This archive table has not been refreshed since January 2024 and should only
+  be used for historical analysis of pre-2025 data. Do NOT union this table
+  with gl_transactions for current reporting — the archive may contain
+  stale corrections.
+
+owner: finance-data-team@company.com
+primary_key: transaction_id
+row_count_approx: 48000
+refresh_cadence: none
+last_refreshed: "2024-01-15T06:00:00Z"
+
+quality:
+  status: stale
+  known_issues:
+    - issue: "Table has not been refreshed since 2024-01-15. Data covers through 2024-12-31 only."
+      severity: high
+      workaround: "Use finance.gl_transactions for 2025+ data."
+    - issue: "Some Q4 2024 reversals may be missing due to the early refresh cutoff."
+      severity: medium
+      workaround: "Cross-reference with the ERP system for Q4 2024 reversals if precision is required."
+  null_rates:
+    posted_date: 0.04
+    cost_center: 0.03
+    description: 0.00
+
+relationships:
+  - column: account_code
+    references: finance.budgets.account_code
+    type: many_to_one
+  - column: department_id
+    references: operations.departments.department_id
+    type: many_to_one
+
+columns:
+  - name: transaction_id
+    type: INTEGER
+    description: "Unique identifier for each journal entry line."
+
+  - name: transaction_date
+    type: DATE
+    description: "The date the business event occurred."
+    business_context: "All values in this table are prior to 2025-01-01."
+
+  - name: posted_date
+    type: DATE
+    description: "The date the entry was posted to the general ledger."
+
+  - name: account_code
+    type: VARCHAR(10)
+    description: "Chart-of-accounts code. Same coding scheme as gl_transactions (4xxx=revenue, 5xxx=COGS, 6xxx=opex, 7xxx=depreciation)."
+
+  - name: amount
+    type: DECIMAL(15,2)
+    description: "Signed monetary amount. Positive=debit, negative=credit."
+
+  - name: status
+    type: VARCHAR(20)
+    description: "GL posting status."
+    values: ["posted", "pending", "reversed"]
+
+  - name: department_id
+    type: INTEGER
+    description: "Foreign key to the department."
+
+  - name: cost_center
+    type: VARCHAR(20)
+    description: "Cost center code for expense allocation."
+
+  - name: description
+    type: TEXT
+    description: "Free-text description of the journal entry."
+
+  - name: created_by
+    type: VARCHAR(50)
+    description: "Username of the person or system that created the entry."
+
+sample_queries:
+  - question: "What was total revenue for fiscal year 2023?"
+    sql: |
+      SELECT ABS(SUM(amount)) AS total_revenue
+      FROM finance.gl_transactions_archive
+      WHERE account_code LIKE '4%'
+        AND status = 'posted'
+        AND transaction_date >= '2023-01-01'
+        AND transaction_date < '2024-01-01'
+    notes: >
+      Use this table only for pre-2025 historical queries.
+      For 2025+ data, use finance.gl_transactions instead.

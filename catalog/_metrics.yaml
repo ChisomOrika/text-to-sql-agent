@@ -1,0 +1,74 @@
+metrics:
+  - name: revenue
+    disambiguation_required: true
+    prompt_to_user: >
+      "Revenue" can mean different things depending on context:
+      1) GAAP Recognized Revenue (Finance/Accounting) — ASC 606 recognized amounts
+      2) Billed/Invoiced Revenue (AR/Collections) — total invoiced to clients
+      3) Delivered Revenue (Operations/PMO) — value of accepted deliverables
+      Which definition would you like?
+    definitions:
+      - id: revenue_gaap
+        name: "GAAP Recognized Revenue"
+        description: "Revenue recognized per ASC 606. Official number for financial statements."
+        table: finance.revenue_recognition
+        calculation: "SUM(recognized_amount)"
+        filters: "None required"
+        grain: "Per contract, per fiscal period"
+        refresh_cadence: monthly
+        owner: finance
+        typical_users: ["CFO", "Controller", "FP&A"]
+      - id: revenue_billed
+        name: "Billed Revenue (Invoiced)"
+        description: "Total amount invoiced to clients. Can differ from GAAP due to timing."
+        table: finance.accounts_receivable
+        calculation: "SUM(amount)"
+        filters: "Typically exclude status = 'written_off'"
+        grain: "Per client, per invoice"
+        refresh_cadence: daily
+        owner: finance
+        typical_users: ["AR team", "Sales", "Account Managers"]
+      - id: revenue_delivered
+        name: "Delivered Revenue (Milestone-based)"
+        description: "Revenue based on accepted deliverables. Used by operations."
+        table: operations.service_delivery
+        calculation: "SUM(deliverable_value) WHERE acceptance_status = 'accepted'"
+        filters: "Must filter acceptance_status = 'accepted'"
+        grain: "Per engagement, per milestone"
+        refresh_cadence: weekly
+        owner: operations
+        typical_users: ["PMO", "Delivery Leads", "COO"]
+
+  - name: utilization_rate
+    disambiguation_required: false
+    definitions:
+      - id: utilization
+        name: "Consultant Utilization Rate"
+        description: "Ratio of billable hours to total hours worked."
+        tables: ["operations.timesheets", "operations.staffing"]
+        calculation: "SUM(CASE WHEN billable THEN hours ELSE 0 END) / NULLIF(SUM(hours), 0) FROM operations.timesheets WHERE status = 'approved'"
+        refresh_cadence: daily
+        owner: operations
+        typical_users: ["PMO", "HR", "Department Heads"]
+        known_issues: ["approved_by has 15% null rate for recent months, but status field is reliable"]
+
+  - name: client_satisfaction
+    disambiguation_required: false
+    definitions:
+      - id: nps
+        name: "Net Promoter Score (NPS)"
+        description: "Average NPS score from client surveys. Scale 0-10."
+        table: client_services.client_feedback
+        calculation: "AVG(nps_score)"
+        filters: "Exclude null nps_score values"
+        refresh_cadence: monthly
+        owner: client_services
+        known_issues: ["~20% null rate on nps_score for Q1 2025 due to survey platform migration"]
+      - id: csat
+        name: "Customer Satisfaction (CSAT)"
+        description: "Average CSAT score. Scale 1.0-5.0."
+        table: client_services.client_feedback
+        calculation: "AVG(csat_score)"
+        filters: "Exclude null csat_score values"
+        refresh_cadence: monthly
+        owner: client_services

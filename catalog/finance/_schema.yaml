@@ -1,0 +1,26 @@
+schema: finance
+description: >
+  Core financial data including general ledger transactions, revenue recognition,
+  accounts receivable, and budgets. This schema is the system of record for all
+  financial reporting and analysis.
+
+owner: finance-data-team@company.com
+
+notes:
+  - >
+    IMPORTANT: "Revenue" has three distinct definitions in this schema.
+    Always clarify which one the user means before writing a query:
+      1. GAAP Recognized Revenue (ASC 606) — use finance.revenue_recognition.recognized_amount
+      2. Billed / Invoiced Revenue — use finance.accounts_receivable.amount (where status != 'written_off')
+      3. Cash-basis Revenue — use finance.gl_transactions.amount (where account_code LIKE '4%' AND status = 'posted')
+  - >
+    When a user asks about "revenue" without qualification, ask them to clarify
+    which definition they need. If they cannot clarify, default to Definition 1
+    (GAAP Recognized Revenue) as it is the audited figure.
+
+tables:
+  - finance.gl_transactions
+  - finance.gl_transactions_archive
+  - finance.revenue_recognition
+  - finance.accounts_receivable
+  - finance.budgets

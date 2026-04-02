@@ -1,0 +1,92 @@
+table: operations.departments
+description: >
+  Reference / dimension table for organizational departments. Contains the
+  department hierarchy (via self-referencing parent_department_code), cost center
+  assignments, and department heads. Used as a lookup for staffing, timesheets,
+  budgets, and GL transactions.
+
+owner: operations-team@company.com
+primary_key: department_code
+row_count_approx: 12
+refresh_cadence: monthly
+last_refreshed: "2026-03-31T06:00:00Z"
+
+quality:
+  status: healthy
+  known_issues: []
+  null_rates:
+    parent_department_code: 0.08
+    head_employee_id: 0.00
+
+relationships:
+  - column: parent_department_code
+    references: operations.departments.department_code
+    type: many_to_one
+  - column: head_employee_id
+    references: operations.staffing.employee_id
+    type: many_to_one
+
+columns:
+  - name: department_code
+    type: VARCHAR(10)
+    description: Short code uniquely identifying the department.
+    business_context: >
+      Primary key. Referenced by operations.staffing.department_code,
+      finance.gl_transactions.department_code, and finance.budgets.department_code.
+
+  - name: department_name
+    type: VARCHAR(200)
+    description: Human-readable name of the department.
+
+  - name: cost_center
+    type: VARCHAR(20)
+    description: Cost center code associated with this department.
+    business_context: >
+      Used for budget tracking and cost allocation. Maps to finance.budgets
+      for budget-vs-actual analysis.
+
+  - name: parent_department_code
+    type: VARCHAR(10)
+    description: Department code of the parent department in the org hierarchy.
+    business_context: >
+      Self-referencing foreign key to operations.departments.department_code.
+      NULL for top-level departments that have no parent.
+    disambiguation: >
+      This creates a hierarchical tree structure. To traverse the full
+      hierarchy, use a recursive CTE.
+
+  - name: head_employee_id
+    type: INTEGER
+    description: Employee ID of the department head.
+    business_context: >
+      Links to operations.staffing.employee_id. Identifies the person
+      responsible for the department.
+
+sample_queries:
+  - question: "List all departments with their parent department names."
+    sql: |
+      SELECT
+          d.department_code,
+          d.department_name,
+          d.cost_center,
+          p.department_name AS parent_department_name
+      FROM operations.departments d
+      LEFT JOIN operations.departments p
+          ON d.parent_department_code = p.department_code
+      ORDER BY d.department_name
+    notes: >
+      Uses a self-join to resolve the parent department name. Top-level
+      departments will have NULL for parent_department_name.
+
+  - question: "Which department heads are currently active?"
+    sql: |
+      SELECT
+          d.department_name,
+          s.full_name AS department_head,
+          s.title
+      FROM operations.departments d
+      JOIN operations.staffing s
+          ON d.head_employee_id = s.employee_id
+      WHERE s.status = 'active'
+      ORDER BY d.department_name
+    notes: "Filters to active employees only to flag departments with inactive heads."
