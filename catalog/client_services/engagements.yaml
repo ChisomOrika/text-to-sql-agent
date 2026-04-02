@@ -8,7 +8,7 @@ owner: client-services-team@company.com
 primary_key: engagement_id
 row_count_approx: 200
 refresh_cadence: daily
-last_refreshed: "2026-03-31T06:00:00Z"
+last_refreshed: "2026-04-02T06:00:00Z"
 
 quality:
   status: healthy

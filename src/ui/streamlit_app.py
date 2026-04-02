@@ -125,7 +125,16 @@ def main():
                     st.markdown(f"**{d.name}**: {d.description[:80]}...")
 
     # --- Main Area ---
-    st.title("Text-to-SQL Agent")
+    title_col, btn_col = st.columns([6, 1])
+    with title_col:
+        st.title("Text-to-SQL Agent")
+    with btn_col:
+        st.markdown("")  # spacing
+        if st.button("New Chat", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.pending_disambiguation = None
+            st.rerun()
+
     st.caption(
         "Ask questions about an enterprise data warehouse with 15 tables across 3 schemas. "
         "The agent uses a data catalog to understand business context, disambiguate metrics, "

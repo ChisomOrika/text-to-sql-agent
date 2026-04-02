@@ -8,7 +8,7 @@ owner: operations-team@company.com
 primary_key: employee_id
 row_count_approx: 150
 refresh_cadence: weekly
-last_refreshed: "2026-03-31T06:00:00Z"
+last_refreshed: "2026-04-01T06:00:00Z"
 
 quality:
   status: healthy

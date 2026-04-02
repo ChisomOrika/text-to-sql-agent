@@ -17,8 +17,6 @@ def get_connection() -> duckdb.DuckDBPyConnection:
 def execute_query(sql: str, timeout_seconds: int | None = None) -> list[dict]:
     """Execute a SQL query and return results as list of dicts."""
     conn = get_connection()
-    timeout = timeout_seconds or settings.query_timeout_seconds
-    conn.execute(f"SET statement_timeout='{timeout}s'")
     result = conn.execute(sql)
     columns = [desc[0] for desc in result.description]
     rows = result.fetchall()
