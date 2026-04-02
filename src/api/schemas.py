@@ -20,6 +20,7 @@ class QueryResponse(BaseModel):
     clarification_prompt: str | None = None
     clarification_options: list[dict[str, str]] | None = None
     session_id: str = ""
+    cached: bool = False
 
 
 class TableSummary(BaseModel):
@@ -37,3 +38,4 @@ class HealthResponse(BaseModel):
     warehouse_connected: bool
     catalog_loaded: bool
     tables_count: int
+    cache_stats: dict[str, Any] = {}

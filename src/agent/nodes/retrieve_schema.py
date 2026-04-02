@@ -2,6 +2,7 @@
 
 from src.agent.state import AgentState
 from src.catalog.retriever import CatalogRetriever
+from src.logging_config import log_node
 
 
 # Module-level retriever set during graph construction
@@ -13,6 +14,7 @@ def set_retriever(retriever: CatalogRetriever):
     _retriever = retriever
 
 
+@log_node("retrieve_schema")
 def retrieve_schema(state: AgentState) -> dict:
     """Retrieve relevant tables and metrics from the catalog."""
     if _retriever is None:

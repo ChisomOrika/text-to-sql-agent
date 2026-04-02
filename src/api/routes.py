@@ -1,7 +1,9 @@
 """FastAPI route handlers."""
 
 import uuid
-from fastapi import APIRouter
+from typing import Any
+
+from fastapi import APIRouter, Depends
 
 from src.api.schemas import (
     HealthResponse,
@@ -9,6 +11,9 @@ from src.api.schemas import (
     QueryResponse,
     TableSummary,
 )
+from src.auth import verify_api_key
+from src.guardrails import sanitize_input
+from src.logging_config import logger
 
 router = APIRouter()
 
@@ -18,25 +23,57 @@ _sessions: dict[str, list[dict]] = {}
 # These are set during app startup
 _graph = None
 _catalog = None
+_cache = None
 
 
-def set_dependencies(graph, catalog):
-    global _graph, _catalog
+def set_dependencies(graph, catalog, cache=None):
+    global _graph, _catalog, _cache
     _graph = graph
     _catalog = catalog
+    _cache = cache
 
 
 @router.post("/api/query", response_model=QueryResponse)
-async def query(req: QueryRequest) -> QueryResponse:
+async def query(
+    req: QueryRequest,
+    user: dict[str, Any] = Depends(verify_api_key),
+) -> QueryResponse:
     """Execute a natural language query against the warehouse."""
     session_id = req.session_id or str(uuid.uuid4())
 
     if session_id not in _sessions:
         _sessions[session_id] = []
 
+    # Sanitize input for prompt injection
+    cleaned_question, injection_warnings = sanitize_input(req.question)
+    if injection_warnings:
+        logger.warning(
+            f"Injection patterns stripped from query by user={user.get('user')}",
+            extra={"extra_data": {"warnings": injection_warnings}},
+        )
+
+    # Check semantic cache first (skip if disambiguation choice is provided)
+    if _cache and not req.disambiguation_choice:
+        cached = _cache.get(cleaned_question)
+        if cached is not None:
+            logger.info(
+                "Cache hit",
+                extra={"extra_data": {"event": "cache_hit", "question": cleaned_question[:100]}},
+            )
+            return QueryResponse(
+                status="completed",
+                answer=cached.get("final_response"),
+                sql=cached.get("generated_sql"),
+                results=cached.get("query_results"),
+                row_count=cached.get("row_count", 0),
+                warnings=cached.get("warnings", []),
+                session_id=session_id,
+                cached=True,
+            )
+
     # Build agent input
     agent_input = {
-        "user_question": req.question,
+        "user_question": cleaned_question,
         "conversation_history": _sessions[session_id],
         "disambiguation_choice": req.disambiguation_choice,
     }
@@ -45,7 +82,7 @@ async def query(req: QueryRequest) -> QueryResponse:
     result = _graph.invoke(agent_input)
 
     # Store in session
-    _sessions[session_id].append({"role": "user", "content": req.question})
+    _sessions[session_id].append({"role": "user", "content": cleaned_question})
 
     status = result.get("status", "error")
 
@@ -56,6 +93,10 @@ async def query(req: QueryRequest) -> QueryResponse:
             clarification_options=result.get("disambiguation_options", []),
             session_id=session_id,
         )
+
+    # Cache the result
+    if _cache:
+        _cache.put(cleaned_question, result)
 
     # Store assistant response
     _sessions[session_id].append(
@@ -117,18 +158,19 @@ async def health() -> HealthResponse:
     """Health check."""
     warehouse_ok = False
     try:
-        from src.warehouse.connection import get_connection
-        conn = get_connection()
-        conn.execute("SELECT 1")
+        from src.warehouse.connection import execute_query
+        execute_query("SELECT 1")
         warehouse_ok = True
     except Exception:
         pass
 
     catalog_ok = _catalog is not None and len(_catalog.tables) > 0
+    cache_stats = _cache.stats() if _cache else {}
 
     return HealthResponse(
         status="ok" if warehouse_ok and catalog_ok else "degraded",
         warehouse_connected=warehouse_ok,
         catalog_loaded=catalog_ok,
         tables_count=len(_catalog.tables) if _catalog else 0,
+        cache_stats=cache_stats,
     )

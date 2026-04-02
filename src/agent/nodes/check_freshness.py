@@ -4,8 +4,10 @@ from datetime import datetime, timezone
 
 from src.agent.state import AgentState
 from src.catalog.models import TableCatalogEntry
+from src.logging_config import log_node
 
 
+@log_node("check_freshness")
 def check_freshness(state: AgentState) -> dict:
     """Check freshness and quality metadata for relevant tables."""
     freshness_warnings = []

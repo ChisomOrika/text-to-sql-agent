@@ -4,8 +4,10 @@ from src.agent.state import AgentState
 from src.agent.prompts import GENERATE_SQL_SYSTEM, GENERATE_SQL_USER
 from src.catalog.models import TableCatalogEntry
 from src.llm.claude import chat_json
+from src.logging_config import log_node
 
 
+@log_node("generate_sql")
 def generate_sql(state: AgentState) -> dict:
     """Generate SQL query using Claude with catalog context."""
     question = state["user_question"]

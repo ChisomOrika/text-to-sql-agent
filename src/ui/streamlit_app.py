@@ -76,19 +76,24 @@ EXAMPLE_QUESTIONS = {
 
 @st.cache_resource
 def init_agent():
-    """Initialize catalog, index, and agent graph (cached)."""
+    """Initialize catalog, index, agent graph, and cache."""
+    from src.cache import SemanticCache
+    from src.logging_config import setup_logging
+
+    setup_logging()
     catalog = CatalogLoader().load()
     index = CatalogIndex(catalog)
     index.load()
     retriever = CatalogRetriever(catalog, index)
     graph = build_graph(retriever)
-    return graph, catalog
+    cache = SemanticCache()
+    return graph, catalog, cache
 
 
 def main():
     st.set_page_config(page_title="Text-to-SQL Agent", layout="wide")
 
-    graph, catalog = init_agent()
+    graph, catalog, cache = init_agent()
 
     # --- Sidebar: Catalog Browser & Quality Status ---
     with st.sidebar:
@@ -159,7 +164,7 @@ def main():
                 for q in info["questions"]:
                     if st.button(q, key=f"example_{hash(q)}", use_container_width=True):
                         st.session_state.messages.append({"role": "user", "content": q})
-                        _run_query(graph, q)
+                        _run_query(graph, cache, q)
                         st.rerun()
 
         st.divider()
@@ -188,7 +193,7 @@ def main():
         for i, opt in enumerate(options):
             if cols[i].button(opt["name"], key=f"disambig_{i}"):
                 st.session_state.pending_disambiguation = None
-                _run_query(graph, disambig["question"], disambiguation_choice=opt["id"])
+                _run_query(graph, cache, disambig["question"], disambiguation_choice=opt["id"])
                 st.rerun()
 
     # --- Chat Input ---
@@ -197,15 +202,34 @@ def main():
         with st.chat_message("user"):
             st.markdown(question)
 
-        _run_query(graph, question)
+        _run_query(graph, cache, question)
         st.rerun()
 
 
-def _run_query(graph, question: str, disambiguation_choice: str | None = None):
-    """Run a query through the agent and update session state."""
+def _run_query(graph, cache, question: str, disambiguation_choice: str | None = None):
+    """Run a query through the agent with caching and input sanitization."""
+    from src.guardrails import sanitize_input
+
+    # Sanitize input
+    cleaned_question, injection_warnings = sanitize_input(question)
+
+    # Check cache first (skip if disambiguation)
+    if not disambiguation_choice:
+        cached = cache.get(cleaned_question)
+        if cached is not None:
+            msg = {
+                "role": "assistant",
+                "content": cached.get("final_response", "") + "\n\n*⚡ Served from cache*",
+                "sql": cached.get("generated_sql"),
+                "warnings": cached.get("warnings", []),
+                "results": cached.get("query_results"),
+            }
+            st.session_state.messages.append(msg)
+            return
+
     with st.spinner("Thinking..."):
         result = graph.invoke({
-            "user_question": question,
+            "user_question": cleaned_question,
             "conversation_history": [],
             "disambiguation_choice": disambiguation_choice,
         })
@@ -219,6 +243,9 @@ def _run_query(graph, question: str, disambiguation_choice: str | None = None):
             "question": question,
         }
         return
+
+    # Cache the result
+    cache.put(cleaned_question, result)
 
     msg = {
         "role": "assistant",

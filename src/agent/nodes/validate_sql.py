@@ -17,8 +17,11 @@ import sqlparse
 
 from src.agent.state import AgentState
 from src.catalog.models import TableCatalogEntry
+from src.guardrails import validate_generated_sql
+from src.logging_config import log_node
 
 
+@log_node("validate_sql")
 def validate_sql(state: AgentState) -> dict:
     """Validate SQL against the catalog. Returns validation result."""
     sql = state.get("generated_sql", "")
@@ -43,6 +46,12 @@ def validate_sql(state: AgentState) -> dict:
         if sql_upper.startswith(forbidden):
             errors.append(f"Destructive SQL detected: {forbidden.strip()}")
             return {"validation_passed": False, "validation_errors": errors}
+
+    # Check for injection patterns (piggyback queries, system catalog access, etc.)
+    safe, guardrail_errors = validate_generated_sql(sql)
+    if not safe:
+        errors.extend(guardrail_errors)
+        return {"validation_passed": False, "validation_errors": errors}
 
     # Extract table references from SQL
     referenced_tables = _extract_table_refs(sql)

@@ -2,8 +2,10 @@
 
 from src.agent.state import AgentState
 from src.warehouse.connection import execute_query as run_sql
+from src.logging_config import log_node
 
 
+@log_node("execute_query")
 def execute_query(state: AgentState) -> dict:
     """Execute the validated SQL against DuckDB."""
     sql = state.get("generated_sql", "")

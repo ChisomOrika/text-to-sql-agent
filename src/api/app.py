@@ -9,11 +9,15 @@ from src.catalog.loader import CatalogLoader
 from src.catalog.index import CatalogIndex
 from src.catalog.retriever import CatalogRetriever
 from src.agent.graph import build_graph
+from src.cache import SemanticCache
+from src.logging_config import setup_logging
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize catalog, index, and agent graph on startup."""
+    """Initialize catalog, index, agent graph, and cache on startup."""
+    setup_logging()
+
     print("Loading catalog...")
     catalog = CatalogLoader().load()
     print(f"  {len(catalog.tables)} tables, {len(catalog.metrics)} metrics")
@@ -27,7 +31,10 @@ async def lifespan(app: FastAPI):
     print("Building agent graph...")
     graph = build_graph(retriever)
 
-    set_dependencies(graph, catalog)
+    print("Initializing semantic cache...")
+    cache = SemanticCache()
+
+    set_dependencies(graph, catalog, cache)
     print("Ready!")
 
     yield

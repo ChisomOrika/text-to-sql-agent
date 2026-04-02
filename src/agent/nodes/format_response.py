@@ -5,8 +5,10 @@ import json
 from src.agent.state import AgentState
 from src.agent.prompts import FORMAT_RESPONSE_SYSTEM, FORMAT_RESPONSE_USER
 from src.llm.claude import chat
+from src.logging_config import log_node
 
 
+@log_node("format_response")
 def format_response(state: AgentState) -> dict:
     """Format query results and warnings into a final response."""
     warnings = state.get("freshness_warnings", []) + state.get("quality_warnings", [])

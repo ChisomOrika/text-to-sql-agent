@@ -3,8 +3,10 @@
 from src.agent.state import AgentState
 from src.agent.prompts import PARSE_QUESTION_SYSTEM
 from src.llm.claude import chat_json
+from src.logging_config import log_node
 
 
+@log_node("parse_question")
 def parse_question(state: AgentState) -> dict:
     """Extract intent, entities, and time range from the user question."""
     question = state["user_question"]
