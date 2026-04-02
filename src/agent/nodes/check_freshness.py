@@ -26,7 +26,7 @@ def check_freshness(state: AgentState) -> dict:
                 # Thresholds differ per cadence: a daily table 2 days stale is a problem,
                 # but a monthly table 2 days past refresh is normal. Thresholds are
                 # intentionally generous (2x the cadence) to avoid false alarms.
-                if entry.refresh_cadence == "daily" and age_days > 2:
+                if entry.refresh_cadence == "daily" and age_days > 3:
                     freshness_warnings.append(
                         f"WARNING: {table_name} is {age_days:.0f} days since last refresh "
                         f"(expected daily). Last refreshed: {entry.last_refreshed}"

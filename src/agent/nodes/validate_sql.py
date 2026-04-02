@@ -56,7 +56,7 @@ def validate_sql(state: AgentState) -> dict:
                 errors.append(f"Table '{ref}' not found in retrieved catalog entries")
 
     # Check column references against catalog
-    referenced_columns = _extract_column_refs(sql)
+    referenced_columns = _extract_column_refs(sql, referenced_tables)
     for col in referenced_columns:
         found = False
         for entry in catalog_tables.values():
@@ -92,7 +92,7 @@ def _extract_table_refs(sql: str) -> set[str]:
     return refs
 
 
-def _extract_column_refs(sql: str) -> set[str]:
+def _extract_column_refs(sql: str, table_refs: set[str] | None = None) -> set[str]:
     # Intentionally loose/best-effort: over-strict column validation causes more
     # false positives than it prevents real errors.
     """Extract potential column references from SQL. Best-effort."""
@@ -101,7 +101,23 @@ def _extract_column_refs(sql: str) -> set[str]:
     cleaned = re.sub(r"'[^']*'", "", sql)
     cleaned = re.sub(r"--.*$", "", cleaned, flags=re.MULTILINE)
 
-    # Look for identifiers after SELECT, WHERE, ON, BY, HAVING
+    # Build a set of known table/schema names to exclude from column results.
+    # Without this, "finance.accounts_receivable" would flag "accounts_receivable" as a column.
+    known_table_parts = set()
+    if table_refs:
+        for ref in table_refs:
+            for part in ref.split("."):
+                known_table_parts.add(part.lower())
+
+    # Also extract aliases (e.g., "FROM finance.accounts_receivable ar" -> "ar")
+    for match in re.finditer(r'(?:FROM|JOIN)\s+[\w.]+\s+(?:AS\s+)?(\w+)', cleaned, re.IGNORECASE):
+        alias = match.group(1).lower()
+        if alias.upper() not in ("ON", "WHERE", "GROUP", "ORDER", "HAVING", "LEFT", "RIGHT", "INNER", "OUTER", "CROSS", "JOIN", "AND", "OR"):
+            known_table_parts.add(alias)
+
+    # Look for identifiers after a dot (alias.column or schema.table patterns)
     for match in re.finditer(r'(?:\.)([\w]+)', cleaned):
-        cols.add(match.group(1))
+        candidate = match.group(1)
+        if candidate.lower() not in known_table_parts:
+            cols.add(candidate)
     return cols
