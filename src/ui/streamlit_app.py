@@ -76,14 +76,35 @@ EXAMPLE_QUESTIONS = {
 
 @st.cache_resource
 def init_agent():
-    """Initialize catalog, index, agent graph, and cache."""
+    """Initialize catalog, index, agent graph, and cache.
+
+    Auto-creates the warehouse and catalog index on first run (needed for
+    Streamlit Cloud where setup scripts don't run automatically).
+    """
+    import os
     from src.cache import SemanticCache
     from src.logging_config import setup_logging
+    from config.settings import settings
 
     setup_logging()
+
+    # Auto-seed warehouse if it doesn't exist
+    if not os.path.exists(settings.duckdb_path):
+        from src.warehouse.seed import seed_warehouse
+        os.makedirs(os.path.dirname(settings.duckdb_path), exist_ok=True)
+        seed_warehouse()
+
     catalog = CatalogLoader().load()
+
+    # Auto-build index if it doesn't exist
+    index_path = os.path.join(settings.catalog_dir, ".index", "embeddings.npy")
     index = CatalogIndex(catalog)
-    index.load()
+    if not os.path.exists(index_path):
+        index.build()
+        index.save()
+    else:
+        index.load()
+
     retriever = CatalogRetriever(catalog, index)
     graph = build_graph(retriever)
     cache = SemanticCache()

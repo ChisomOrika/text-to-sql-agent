@@ -1,6 +1,21 @@
-"""Central configuration using Pydantic BaseSettings."""
+"""Central configuration using Pydantic BaseSettings.
+
+Reads from .env locally. On Streamlit Cloud, reads from st.secrets
+(configured in the Streamlit Cloud dashboard).
+"""
+
+import os
 
 from pydantic_settings import BaseSettings
+
+
+def _get_streamlit_secret(key: str) -> str | None:
+    """Try to read a secret from Streamlit Cloud's secrets manager."""
+    try:
+        import streamlit as st
+        return st.secrets.get(key)
+    except Exception:
+        return None
 
 
 class Settings(BaseSettings):
@@ -28,5 +43,10 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
+
+# On Streamlit Cloud, secrets come from the dashboard, not .env
+_cloud_key = _get_streamlit_secret("ANTHROPIC_API_KEY")
+if _cloud_key:
+    os.environ["ANTHROPIC_API_KEY"] = _cloud_key
 
 settings = Settings()
