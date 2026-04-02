@@ -14,6 +14,66 @@ from src.catalog.retriever import CatalogRetriever
 from src.agent.graph import build_graph
 
 
+# Example questions organized by what they demonstrate
+EXAMPLE_QUESTIONS = {
+    "Metric Disambiguation": {
+        "icon": "🔀",
+        "description": "These questions involve 'revenue' — which has 3 competing definitions. The agent asks which one you mean instead of guessing.",
+        "questions": [
+            "What was our revenue last quarter?",
+            "Compare billed vs recognized revenue for 2025",
+            "Show me GAAP revenue by quarter for fiscal year 2025",
+        ],
+    },
+    "Data Quality Awareness": {
+        "icon": "⚠️",
+        "description": "These hit tables with known issues. The agent warns you about stale data, null rates, and deprecated tables.",
+        "questions": [
+            "What is the recognized revenue for March 2026?",
+            "What's the average NPS score for Q1 2025?",
+            "Show me the current client list from the legacy system",
+            "What's the utilization rate by department for Q1 2026?",
+        ],
+    },
+    "Cross-Schema Joins": {
+        "icon": "🔗",
+        "description": "Questions that require joining across finance, operations, and client_services schemas.",
+        "questions": [
+            "Which clients have overdue invoices and active engagements?",
+            "Show me the top 5 consultants by billable hours with their department",
+            "What's the budget variance by department for Q1 2026?",
+        ],
+    },
+    "Simple Lookups": {
+        "icon": "🔍",
+        "description": "Straightforward queries to see the basic flow — parse, retrieve, generate, execute.",
+        "questions": [
+            "How many active clients do we have?",
+            "List all employees currently on leave",
+            "What's the total contract value by contract type?",
+            "Show the top 10 largest invoices",
+        ],
+    },
+    "Ambiguity Resolution": {
+        "icon": "🤔",
+        "description": "'Status' means 9 different things across 9 tables. Watch how the agent picks the right one.",
+        "questions": [
+            "Show me all pending items",
+            "Which engagements are at risk or over budget?",
+            "What's the completion rate for work orders this year?",
+        ],
+    },
+    "Guardrails": {
+        "icon": "🛡️",
+        "description": "The agent refuses destructive queries and redirects away from deprecated tables.",
+        "questions": [
+            "DROP TABLE clients",
+            "DELETE FROM finance.gl_transactions WHERE amount > 0",
+        ],
+    },
+}
+
+
 @st.cache_resource
 def init_agent():
     """Initialize catalog, index, and agent graph (cached)."""
@@ -27,7 +87,6 @@ def init_agent():
 
 def main():
     st.set_page_config(page_title="Text-to-SQL Agent", layout="wide")
-    st.title("Text-to-SQL Agent")
 
     graph, catalog = init_agent()
 
@@ -65,13 +124,38 @@ def main():
                 for d in m.definitions:
                     st.markdown(f"**{d.name}**: {d.description[:80]}...")
 
-    # --- Main Area: Chat Interface ---
+    # --- Main Area ---
+    st.title("Text-to-SQL Agent")
+    st.caption(
+        "Ask questions about an enterprise data warehouse with 15 tables across 3 schemas. "
+        "The agent uses a data catalog to understand business context, disambiguate metrics, "
+        "and warn about data quality issues."
+    )
+
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "pending_disambiguation" not in st.session_state:
         st.session_state.pending_disambiguation = None
 
-    # Display chat history
+    # --- Example Questions (shown when chat is empty) ---
+    if not st.session_state.messages and not st.session_state.pending_disambiguation:
+        st.markdown("### Try these examples")
+        st.markdown(
+            "Each category demonstrates a different capability. "
+            "Click any question to run it."
+        )
+
+        for category, info in EXAMPLE_QUESTIONS.items():
+            with st.expander(f"{info['icon']}  **{category}** — {info['description']}", expanded=False):
+                for q in info["questions"]:
+                    if st.button(q, key=f"example_{hash(q)}", use_container_width=True):
+                        st.session_state.messages.append({"role": "user", "content": q})
+                        _run_query(graph, q)
+                        st.rerun()
+
+        st.divider()
+
+    # --- Chat History ---
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -86,7 +170,7 @@ def main():
                 df = pd.DataFrame(msg["results"])
                 st.dataframe(df, use_container_width=True)
 
-    # Handle disambiguation
+    # --- Disambiguation Handler ---
     if st.session_state.pending_disambiguation:
         disambig = st.session_state.pending_disambiguation
         st.info(disambig["prompt"])
@@ -98,7 +182,7 @@ def main():
                 _run_query(graph, disambig["question"], disambiguation_choice=opt["id"])
                 st.rerun()
 
-    # Chat input
+    # --- Chat Input ---
     if question := st.chat_input("Ask a question about your data..."):
         st.session_state.messages.append({"role": "user", "content": question})
         with st.chat_message("user"):
